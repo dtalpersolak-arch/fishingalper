@@ -42,6 +42,68 @@ let socket = null;
 let remotePlayers = {};
 let lastMoveEmitTime = 0;
 
+function getServerApiUrl(endpoint) {
+    if (!endpoint) endpoint = '';
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) return endpoint;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : (endpoint ? `/${endpoint}` : '');
+
+    // 1. Manuel belirlenmiş sunucu URL'si (ör. Railway)
+    const customUrl = SafeStorage.getItem('mmo_server_url') || (new URLSearchParams(window.location.search).get('server'));
+    if (customUrl && typeof customUrl === 'string' && customUrl.trim()) {
+        return customUrl.trim().replace(/\/$/, '') + cleanEndpoint;
+    }
+
+    // 2. Dosya protokolü (file:///) veya port 3000 harici yerel sunucu (Live Server 5500 vb.)
+    if (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '3000' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))) {
+        return `http://localhost:3000${cleanEndpoint}`;
+    }
+
+    // 3. Varsayılan aynı origin
+    return cleanEndpoint;
+}
+
+function saveLocalAccount(username, email, password, role) {
+    try {
+        const raw = SafeStorage.getItem('mmo_local_accounts');
+        const accounts = raw ? JSON.parse(raw) : [];
+        const lower = (username || '').trim().toLowerCase();
+        if (!lower) return;
+        const existingIdx = accounts.findIndex(a => a.username && a.username.toLowerCase() === lower);
+        const accObj = {
+            username: username.trim(),
+            email: (email || '').trim().toLowerCase(),
+            password: password,
+            role: role || (lower === 'burak' || lower === 'admin' ? 'admin' : 'player'),
+            savedAt: Date.now()
+        };
+        if (existingIdx >= 0) {
+            accounts[existingIdx] = accObj;
+        } else {
+            accounts.push(accObj);
+        }
+        SafeStorage.setItem('mmo_local_accounts', JSON.stringify(accounts));
+    } catch(e) {
+        console.warn('Yerel hesap kaydedilemedi:', e);
+    }
+}
+
+function findLocalAccount(identifier) {
+    try {
+        const raw = SafeStorage.getItem('mmo_local_accounts');
+        if (!raw) return null;
+        const accounts = JSON.parse(raw);
+        if (!Array.isArray(accounts)) return null;
+        const lower = (identifier || '').trim().toLowerCase();
+        if (!lower) return null;
+        return accounts.find(a => 
+            (a.username && a.username.toLowerCase() === lower) || 
+            (a.email && a.email.toLowerCase() === lower)
+        ) || null;
+    } catch(e) {
+        return null;
+    }
+}
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const previewCanvas = document.getElementById('previewCanvas');
@@ -6753,7 +6815,7 @@ function initCharacterCreationModal() {
 
         if (serverOnline && authToken) {
             try {
-                const res = await fetch('/api/character/create', {
+                const res = await fetch(getServerApiUrl('/api/character/create'), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -6761,13 +6823,14 @@ function initCharacterCreationModal() {
                     },
                     body: JSON.stringify({ name: raw })
                 });
-                const data = await res.json();
+                let data = null;
+                try { data = await res.json(); } catch(e) {}
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
 
-                if (!res.ok || !data.success) {
+                if (!res.ok || !data || !data.success) {
                     if (errText) {
-                        errText.textContent = data.message || 'Bu karakter adı kullanılamıyor!';
+                        errText.textContent = (data && data.message) ? data.message : 'Bu karakter adı kullanılamıyor!';
                         errText.classList.remove('hidden');
                     }
                     input.focus();
@@ -6781,12 +6844,16 @@ function initCharacterCreationModal() {
                 addChatMessage('Sistem', `Hoş geldin ${player.name}! Burnaz Sahil'desin. Sohbet etmek için [T] tuşuna basabilirsin.`, 'system');
                 return;
             } catch (err) {
+                console.warn('Sunucuya karakter kaydedilemedi, yerel modda devam ediliyor:', err);
+                serverOnline = false;
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
-                if (errText) {
-                    errText.textContent = 'Sunucuya bağlanılamadı, lütfen tekrar deneyin.';
-                    errText.classList.remove('hidden');
-                }
+                player.name = raw;
+                SafeStorage.setItem('mmo_character_name', raw);
+                updateExpHUD();
+                modal.classList.add('hidden');
+                showToast(`⚡ Yerel Mod: Hoş geldin, ${player.name}! Dünyaya adım attın.`, '#ffd166');
+                addChatMessage('Sistem', `Hoş geldin ${player.name}! (Çevrimdışı modda oynuyorsun).`, 'system');
                 return;
             }
         }
@@ -13928,7 +13995,7 @@ async function saveCharacterToServer() {
     };
 
     try {
-        await fetch('/api/character/save', {
+        await fetch(getServerApiUrl('/api/character/save'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -13953,7 +14020,8 @@ function initSocketConnection() {
     if (socket && socket.connected) return;
 
     try {
-        socket = io();
+        const socketTarget = getServerApiUrl('');
+        socket = socketTarget ? io(socketTarget) : io();
 
         socket.on('connect', () => {
             socket.emit('player_join', {
@@ -14047,36 +14115,57 @@ function closeAuthGateway() {
 }
 
 async function checkServerStatus() {
+    const dot = document.getElementById('auth-status-dot');
+    const txt = document.getElementById('auth-status-text');
+
+    const tryUrl = getServerApiUrl('/api/status');
     try {
-        const res = await fetch('/api/status', { method: 'GET', cache: 'no-cache' });
+        const res = await fetch(tryUrl, { method: 'GET', cache: 'no-cache' });
         if (res.ok) {
-            const data = await res.json();
-            serverOnline = true;
-            const dot = document.getElementById('auth-status-dot');
-            const txt = document.getElementById('auth-status-text');
-            if (dot) dot.className = 'auth-status-dot online';
-            if (txt) txt.textContent = `Sunucu: 🟢 Çevrimiçi (${data.onlinePlayers || 0} Oyuncu Aktif)`;
-            return true;
+            let data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (data && data.online) {
+                serverOnline = true;
+                if (dot) dot.className = 'auth-status-dot online';
+                if (txt) txt.textContent = `Sunucu: 🟢 Çevrimiçi (${data.onlinePlayers || 0} Oyuncu Aktif)`;
+                return true;
+            }
         }
     } catch (e) {
-        serverOnline = false;
-        const dot = document.getElementById('auth-status-dot');
-        const txt = document.getElementById('auth-status-text');
-        if (dot) dot.className = 'auth-status-dot offline';
-        if (txt) txt.textContent = 'Sunucu Durumu: ⚡ Yerel / Bağımsız Mod';
+        // Eğer localhost:3000 denendiyse ve relative url farklıysa relative url dene
+        if (tryUrl.startsWith('http://localhost:3000') && window.location.protocol !== 'file:') {
+            try {
+                const res2 = await fetch('/api/status', { method: 'GET', cache: 'no-cache' });
+                if (res2.ok) {
+                    let data2 = null;
+                    try { data2 = await res2.json(); } catch (e2) {}
+                    if (data2 && data2.online) {
+                        serverOnline = true;
+                        if (dot) dot.className = 'auth-status-dot online';
+                        if (txt) txt.textContent = `Sunucu: 🟢 Çevrimiçi (${data2.onlinePlayers || 0} Oyuncu Aktif)`;
+                        return true;
+                    }
+                }
+            } catch (e2) {}
+        }
     }
+
+    serverOnline = false;
+    if (dot) dot.className = 'auth-status-dot offline';
+    if (txt) txt.textContent = 'Sunucu Durumu: ⚡ Yerel / Bağımsız Mod';
     return false;
 }
 
 async function tryAutoLogin() {
     if (!authToken) return false;
     try {
-        const res = await fetch('/api/auth/me', {
+        const res = await fetch(getServerApiUrl('/api/auth/me'), {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.user) {
+            let data = null;
+            try { data = await res.json(); } catch (e) {}
+            if (data && data.success && data.user) {
                 currentUser = data.user;
                 updateAdminPrivileges();
                 if (data.character) {
@@ -14120,19 +14209,25 @@ async function handleLoginSubmit() {
 
     if (serverOnline) {
         try {
-            const res = await fetch('/api/auth/login', {
+            const res = await fetch(getServerApiUrl('/api/auth/login'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             });
-            const data = await res.json();
+            let data = null;
+            try {
+                data = await res.json();
+            } catch (jsonErr) {
+                data = null;
+            }
+
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
             }
 
-            if (!res.ok || !data.success) {
-                showAuthError(errBox, data.message || 'Kullanıcı adı veya şifre hatalı!');
+            if (!res.ok || !data || !data.success) {
+                showAuthError(errBox, (data && data.message) ? data.message : `Giriş başarısız oldu (Hata Kodu: ${res.status}).`);
                 return;
             }
 
@@ -14144,6 +14239,7 @@ async function handleLoginSubmit() {
                 SafeStorage.removeItem('mmo_auth_token');
             }
 
+            saveLocalAccount(currentUser.username, currentUser.email, password, currentUser.role);
             updateAdminPrivileges();
 
             if (data.character) {
@@ -14155,12 +14251,43 @@ async function handleLoginSubmit() {
                 closeAuthGateway();
                 openCharacterCreation();
             }
+            return;
         } catch (err) {
+            console.warn('Giriş sunucu isteği başarısız oldu:', err);
+            // Sunucuya ulaşılamadıysa yerel hesap eşleşmesi var mı kontrol et
+            const localAcc = findLocalAccount(username);
+            if (localAcc) {
+                if (localAcc.password && localAcc.password !== password) {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.style.opacity = '1';
+                    }
+                    showAuthError(errBox, 'Şifre hatalı! (Yerel hesap eşleşmesi)');
+                    return;
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.style.opacity = '1';
+                }
+                currentUser = { id: 1, username: localAcc.username, email: localAcc.email, role: localAcc.role };
+                updateAdminPrivileges();
+                const savedName = SafeStorage.getItem('mmo_character_name');
+                closeAuthGateway();
+                if (savedName) {
+                    player.name = savedName;
+                    showToast(`⚡ Sunucu çevrimdışı. Yerel hesapla devam ediliyor (${player.name})!`, '#ffd166');
+                } else {
+                    openCharacterCreation();
+                }
+                return;
+            }
+
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
             }
-            showAuthError(errBox, 'Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
+            showAuthError(errBox, 'Sunucuya bağlanılamadı. Node.js sunucusunun açık olduğundan veya internet bağlantınızdan emin olun. Dilerseniz hemen alttaki "Çevrimdışı / Yerel Oyna" butonuna tıklayarak oyuna başlayabilirsiniz.');
+            return;
         }
     } else {
         // Yerel Çevrimdışı Mod
@@ -14168,8 +14295,16 @@ async function handleLoginSubmit() {
             submitBtn.disabled = false;
             submitBtn.style.opacity = '1';
         }
-        const isLocalAdmin = (username.toLowerCase() === 'burak' || username.toLowerCase() === 'admin');
-        currentUser = { id: 1, username, email: 'local@mmo.local', role: isLocalAdmin ? 'admin' : 'player' };
+        const localAcc = findLocalAccount(username);
+        if (localAcc && localAcc.password && localAcc.password !== password) {
+            showAuthError(errBox, 'Şifre hatalı!');
+            return;
+        }
+
+        const isLocalAdmin = (username.toLowerCase() === 'burak' || username.toLowerCase() === 'admin' || (localAcc && localAcc.role === 'admin'));
+        const userEmail = localAcc ? localAcc.email : 'local@mmo.local';
+        currentUser = { id: 1, username, email: userEmail, role: isLocalAdmin ? 'admin' : 'player' };
+        saveLocalAccount(username, userEmail, password, currentUser.role);
         updateAdminPrivileges();
         const savedName = SafeStorage.getItem('mmo_character_name');
         closeAuthGateway();
@@ -14228,36 +14363,52 @@ async function handleRegisterSubmit() {
 
     if (serverOnline) {
         try {
-            const res = await fetch('/api/auth/register', {
+            const res = await fetch(getServerApiUrl('/api/auth/register'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, email, password })
             });
-            const data = await res.json();
+            let data = null;
+            try {
+                data = await res.json();
+            } catch(e) {
+                data = null;
+            }
+
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
             }
 
-            if (!res.ok || !data.success) {
-                showAuthError(errBox, data.message || 'Hesap oluşturulamadı!');
+            if (!res.ok || !data || !data.success) {
+                showAuthError(errBox, (data && data.message) ? data.message : `Hesap oluşturulamadı (Hata: ${res.status})!`);
                 return;
             }
 
             currentUser = data.user;
             authToken = data.token;
             SafeStorage.setItem('mmo_auth_token', authToken);
+            saveLocalAccount(username, email, password, currentUser.role);
             updateAdminPrivileges();
 
             showToast(data.message || '🎉 Hesabınız oluşturuldu!', '#80ed99');
             closeAuthGateway();
             openCharacterCreation();
+            return;
         } catch (err) {
+            console.warn('Sunucuya kayıt isteği başarısız oldu, yerel kayıt deneniyor:', err);
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.style.opacity = '1';
             }
-            showAuthError(errBox, 'Sunucuya bağlanılamadı. Lütfen tekrar deneyin.');
+            const isLocalAdmin = (username.toLowerCase() === 'burak' || username.toLowerCase() === 'admin');
+            currentUser = { id: 1, username, email, role: isLocalAdmin ? 'admin' : 'player' };
+            saveLocalAccount(username, email, password, currentUser.role);
+            updateAdminPrivileges();
+            closeAuthGateway();
+            openCharacterCreation();
+            showToast('⚡ Sunucu çevrimdışı: Hesabınız yerel olarak oluşturuldu!', '#ffd166');
+            return;
         }
     } else {
         if (submitBtn) {
@@ -14266,10 +14417,11 @@ async function handleRegisterSubmit() {
         }
         const isLocalAdmin = (username.toLowerCase() === 'burak' || username.toLowerCase() === 'admin');
         currentUser = { id: 1, username, email, role: isLocalAdmin ? 'admin' : 'player' };
+        saveLocalAccount(username, email, password, currentUser.role);
         updateAdminPrivileges();
         closeAuthGateway();
         openCharacterCreation();
-        showToast('🎉 Hesabınız oluşturuldu! Şimdi karakterinizi yaratın.', '#80ed99');
+        showToast('🎉 Hesabınız yerel modda oluşturuldu! Şimdi karakterinizi yaratın.', '#80ed99');
     }
 }
 
@@ -14316,6 +14468,66 @@ function initAuthGatewaySystem() {
 
     const btnRegister = document.getElementById('auth-btn-register');
     if (btnRegister) btnRegister.onclick = handleRegisterSubmit;
+
+    const btnOffline = document.getElementById('auth-btn-offline');
+    if (btnOffline) {
+        btnOffline.onclick = () => {
+            const identInput = document.getElementById('auth-login-ident');
+            const raw = (identInput?.value || '').trim() || 'Balıkçı';
+            const isBurak = (raw.toLowerCase() === 'burak' || raw.toLowerCase() === 'admin');
+            currentUser = { id: 1, username: raw, email: 'local@mmo.local', role: isBurak ? 'admin' : 'player' };
+            updateAdminPrivileges();
+            const savedName = SafeStorage.getItem('mmo_character_name');
+            closeAuthGateway();
+            if (savedName) {
+                player.name = savedName;
+                showToast(`⚡ Çevrimdışı Mod: Hoş geldin, ${player.name}!`, '#ffd166');
+            } else {
+                openCharacterCreation();
+            }
+        };
+    }
+
+    const serverSettingsBtn = document.getElementById('auth-server-settings-btn');
+    const serverConfigRow = document.getElementById('auth-server-config-row');
+    const customServerInput = document.getElementById('auth-custom-server-input');
+    const saveServerBtn = document.getElementById('auth-save-server-btn');
+    const resetServerBtn = document.getElementById('auth-reset-server-btn');
+
+    if (customServerInput) {
+        customServerInput.value = SafeStorage.getItem('mmo_server_url') || '';
+    }
+
+    if (serverSettingsBtn && serverConfigRow) {
+        serverSettingsBtn.onclick = () => {
+            serverConfigRow.classList.toggle('hidden');
+        };
+    }
+
+    if (saveServerBtn && customServerInput) {
+        saveServerBtn.onclick = () => {
+            const val = customServerInput.value.trim();
+            if (val) {
+                SafeStorage.setItem('mmo_server_url', val);
+                showToast(`🌐 Sunucu adresi kaydedildi: ${val}`, '#80ed99');
+            } else {
+                SafeStorage.removeItem('mmo_server_url');
+                showToast('🌐 Otomatik sunucu moduna geçildi.', '#ffd166');
+            }
+            if (serverConfigRow) serverConfigRow.classList.add('hidden');
+            checkServerStatus();
+        };
+    }
+
+    if (resetServerBtn && customServerInput) {
+        resetServerBtn.onclick = () => {
+            customServerInput.value = '';
+            SafeStorage.removeItem('mmo_server_url');
+            showToast('🌐 Varsayılan sunucu adresine dönüldü.', '#ffd166');
+            if (serverConfigRow) serverConfigRow.classList.add('hidden');
+            checkServerStatus();
+        };
+    }
 
     const loginPass = document.getElementById('auth-login-pass');
     if (loginPass) {

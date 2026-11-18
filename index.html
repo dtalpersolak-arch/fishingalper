@@ -375,7 +375,13 @@
                     
                     <div class="auth-server-indicator">
                         <span class="auth-status-dot" id="auth-status-dot"></span>
-                        <span id="auth-status-text">Sunucu Durumu: Bağlantı Kuruluyor...</span>
+                        <span id="auth-status-text">Sunucu Durumu: Bağlantı Kontrol Ediliyor...</span>
+                        <button type="button" id="auth-server-settings-btn" class="auth-server-settings-btn" title="Sunucu Adresi Değiştir (Railway / Localhost)">⚙️</button>
+                    </div>
+                    <div id="auth-server-config-row" class="auth-server-config-row hidden">
+                        <input type="text" id="auth-custom-server-input" placeholder="Sunucu URL: örn. https://mmo.up.railway.app veya boş bırak" />
+                        <button type="button" id="auth-save-server-btn" class="auth-sm-btn">Kaydet</button>
+                        <button type="button" id="auth-reset-server-btn" class="auth-sm-btn secondary">Sıfırla</button>
                     </div>
                 </div>
 
@@ -415,6 +421,12 @@
                     <button id="auth-btn-login" class="action-btn primary auth-submit-btn">
                         <span>🚀 Giriş Yap ve Dünyaya Bağlan</span>
                     </button>
+
+                    <div class="auth-fallback-row">
+                        <button type="button" id="auth-btn-offline" class="auth-offline-btn" title="Sunucu olmadan doğrudan tarayıcıda oyna">
+                            ⚡ Çevrimdışı / Yerel Oyna
+                        </button>
+                    </div>
                 </div>
 
                 <!-- KAYIT FORMU -->
@@ -497,8 +509,13 @@
         </div>
     </div>
 
-    <!-- Socket.io İstemci Kütüphanesi (Sunucu varsa bağlanır, yoksa yerel modda devam eder) -->
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- Socket.io İstemci Kütüphanesi (CDN veya Yerel Sunucu) -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        if (typeof io === 'undefined') {
+            document.write('<script src="/socket.io/socket.io.js"><\/script>');
+        }
+    </script>
     <script src="game.js"></script>
 </body>
 </html>

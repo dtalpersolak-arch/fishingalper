@@ -69,16 +69,27 @@ function initJsonDb() {
 }
 
 let saveTimeout = null;
-function saveJsonDb() {
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
+function saveJsonDb(immediate = false) {
+    const doWrite = () => {
         try {
             if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
             fs.writeFileSync(DB_FILE, JSON.stringify(jsonDb, null, 2), 'utf8');
         } catch (e) {
             console.error('JSON DB kaydedilemedi:', e);
         }
-    }, 200);
+    };
+
+    if (immediate) {
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+            saveTimeout = null;
+        }
+        doWrite();
+        return;
+    }
+
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(doWrite, 150);
 }
 
 // PostgreSQL Bağlantısı (Railway DATABASE_URL varsa)
@@ -89,6 +100,10 @@ async function initDatabase() {
             pgPool = new Pool({
                 connectionString: process.env.DATABASE_URL,
                 ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false }
+            });
+
+            pgPool.on('error', (err) => {
+                console.error('⚠️ PostgreSQL havuz bağlantı uyarısı (boşta bağlantı düştü):', err.message);
             });
 
             await pgPool.query(`
@@ -137,6 +152,7 @@ async function initDatabase() {
 // Veritabanı Yardımcı Fonksiyonları
 const DB = {
     async findUserByUsernameOrEmail(identifier) {
+        if (!identifier) return null;
         const lower = identifier.trim().toLowerCase();
         if (dbMode === 'postgres') {
             const res = await pgPool.query(
@@ -145,7 +161,10 @@ const DB = {
             );
             return res.rows[0] || null;
         } else {
-            return jsonDb.users.find(u => u.username.toLowerCase() === lower || u.email.toLowerCase() === lower) || null;
+            return jsonDb.users.find(u => 
+                (u.username && u.username.toLowerCase() === lower) || 
+                (u.email && u.email.toLowerCase() === lower)
+            ) || null;
         }
     },
 
@@ -184,7 +203,7 @@ const DB = {
                 created_at: new Date().toISOString()
             };
             jsonDb.users.push(newUser);
-            saveJsonDb();
+            saveJsonDb(true);
             return newUser;
         }
     },
@@ -193,11 +212,15 @@ const DB = {
         if (dbMode === 'postgres') {
             const res = await pgPool.query('SELECT * FROM characters WHERE user_id = $1 LIMIT 1', [userId]);
             if (!res.rows[0]) return null;
+            let parsedData = res.rows[0].data;
+            if (typeof parsedData === 'string') {
+                try { parsedData = JSON.parse(parsedData); } catch(e) {}
+            }
             return {
                 id: res.rows[0].id,
                 userId: res.rows[0].user_id,
                 name: res.rows[0].name,
-                ...res.rows[0].data
+                ...(parsedData || {})
             };
         } else {
             const char = jsonDb.characters[userId];
@@ -216,7 +239,7 @@ const DB = {
             return excludeUserId ? res.rows[0].user_id !== excludeUserId : true;
         } else {
             for (const [uId, char] of Object.entries(jsonDb.characters)) {
-                if (char.name.toLowerCase() === lower) {
+                if (char && char.name && char.name.toLowerCase() === lower) {
                     if (excludeUserId && parseInt(uId, 10) === parseInt(excludeUserId, 10)) continue;
                     return true;
                 }
@@ -241,7 +264,7 @@ const DB = {
                 ...characterData,
                 updated_at: new Date().toISOString()
             };
-            saveJsonDb();
+            saveJsonDb(true);
         }
         return true;
     },
@@ -376,6 +399,10 @@ app.post('/api/auth/login', async (req, res) => {
         const user = await DB.findUserByUsernameOrEmail(username.trim());
         if (!user) {
             return res.status(400).json({ success: false, message: 'Kullanıcı adı veya şifre hatalı!' });
+        }
+
+        if (!user.password_hash) {
+            return res.status(400).json({ success: false, message: 'Hesap şifresi doğrulanamadı!' });
         }
 
         const match = bcrypt.compareSync(password, user.password_hash);
