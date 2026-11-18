@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Burnaz Sahil & Dörtyol - 2.5D İzometrik MMO</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Üst HUD -->
+        <div id="hud">
+            <div class="hud-left">
+                <div class="hud-box controls-hint">
+                    <span class="key-pill">Sol Tık</span> Yürü
+                    <span class="divider">•</span>
+                    <span class="key-pill">SPACE</span> Olta / Etkileşim
+                    <span class="divider">•</span>
+                    <span class="key-pill">I</span> Envanter
+                    <span class="divider">•</span>
+                    <span class="key-pill">K</span> Yetenekler
+                    <span class="divider">•</span>
+                    <span class="key-pill">O</span> Auto-Hunt
+                    <span class="divider">•</span>
+                    <span class="key-pill">T</span> Chat
+                    <span class="divider">•</span>
+                    <span class="key-pill">G</span> Lonca
+                    <span class="divider">•</span>
+                    <span class="key-pill">Z</span> Wiki
+                    <span id="hint-admin-divider" class="divider hidden">•</span>
+                    <span id="hint-admin-pill" class="key-pill hidden">P</span> <span id="hint-admin-text" class="hidden">Kontrol Paneli</span>
+                </div>
+
+                <!-- Sol Üst Auto-Hunt Bilgi Kutusu -->
+                <div id="autohunt-panel" class="hud-box autohunt-box">
+                    <div class="ah-header">
+                        <span class="ah-title">🤖 AUTO-HUNT (AFK Modu)</span>
+                        <span id="ah-status-badge" class="ah-badge off">KAPALI [O]</span>
+                    </div>
+                    <div class="ah-penalties">
+                        <span>⏱️ Süre: <b id="ah-time-mult-label">4x Yavaş</b></span>
+                        <span>•</span>
+                        <span>🎲 Nadirlik: <b id="ah-luck-mult-label">1/3 Oran</b></span>
+                    </div>
+                    <div id="ah-progress-wrap" class="ah-progress-wrap hidden">
+                        <div class="ah-progress-bar">
+                            <div id="ah-progress-fill" class="ah-progress-fill"></div>
+                        </div>
+                        <div id="ah-progress-text" class="ah-progress-text">Otomatik olta suda...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hud-right">
+                <div class="hud-box wiki-notify-box" id="hud-wiki-btn" title="Oyun Ansiklopedisi & Detaylı Wiki Rehberini Aç (Z)">
+                    <span>📖 Wiki (Z)</span>
+                </div>
+                <div class="hud-box admin-notify-box hidden" id="hud-admin-btn" title="Oyun Kontrol Panelini Aç (P)">
+                    <span>👑 GM Kontrol Paneli (P)</span>
+                </div>
+                <div class="hud-box account-notify-box" id="hud-account-btn" title="Hesap Bilgisi & Çıkış Yap" style="cursor:pointer; border-color:rgba(76,201,240,0.4);">
+                    <span id="hud-account-name">👤 Giriş</span>
+                </div>
+                <div class="hud-box guild-notify-box" id="hud-guild-btn" title="Lonca Karargâhını Aç (G)">
+                    <span>🏛️ Lonca (G)</span>
+                </div>
+                <div class="hud-box skill-notify-box" id="hud-skill-btn" title="Yetenek Ağacını Aç (K)">
+                    <span>📘 Yetenekler (K)</span>
+                    <span id="hud-sp-badge" class="sp-badge hidden">0 Puan</span>
+                </div>
+                <div class="hud-box gold-box">
+                    <span class="gold-icon">🪙</span>
+                    <span id="hud-gold">250</span> <span class="gold-label">Altın</span>
+                </div>
+                <div id="location-badge" class="hud-box location-box">📍 Burnaz Sahil</div>
+                <button id="kraken-return-btn" class="hud-box" style="display:none; pointer-events:auto !important; cursor:pointer; background:rgba(185,28,28,0.35); border:1.5px solid #ef4444; color:#fecaca; font-weight:800; font-size:12px; padding:6px 12px; border-radius:8px; align-items:center; gap:6px; box-shadow:0 2px 10px rgba(220,38,38,0.4); transition:all 0.2s ease;">🏰 Dörtyol'a Dön</button>
+            </div>
+        </div>
+
+        <!-- Alt Seviye & EXP Barı -->
+        <div id="exp-hud">
+            <div class="exp-level-badge" id="exp-level-badge">Lv. 1</div>
+            <div class="exp-bar-wrapper">
+                <div class="exp-bar-header">
+                    <span id="exp-title-text">Balıkçı Çırağı</span>
+                    <span id="exp-percent-text">EXP: %0 / %100</span>
+                </div>
+                <div class="exp-bar-track">
+                    <div id="exp-bar-fill" class="exp-bar-fill"></div>
+                    <div class="exp-bar-ticks">
+                        <span></span><span></span><span></span><span></span><span></span>
+                        <span></span><span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EKRANIN EN SOL ALT KÖŞESİNDEKİ AKTİF BUFF PANELİ -->
+        <div id="active-buffs-hud" class="active-buffs-hud">
+            <div class="active-buffs-header">
+                <span class="buffs-title-icon">✨</span>
+                <span class="buffs-title-text">AKTİF BUFFLAR & BONUSLAR</span>
+            </div>
+            <div id="buff-bar" class="buff-list"></div>
+        </div>
+
+        <!-- EKRANIN SAĞ ALT KÖŞESİNDEKİ SOHBET (CHAT) PENCERESİ -->
+        <div id="chat-container" class="chat-container">
+            <div class="chat-header">
+                <div class="chat-header-title">
+                    <span class="chat-status-dot"></span>
+                    <span>💬 Genel Sohbet</span>
+                </div>
+                <div class="chat-hint-pill" title="Sohbeti açmak için T tuşuna bas">T</div>
+            </div>
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chat-input" maxlength="80" placeholder="Mesaj yaz... [T]" autocomplete="off">
+                <button id="chat-send-btn" class="chat-send-btn" title="Gönder (Enter)">➤</button>
+            </div>
+        </div>
+
+        <!-- Balık Tutma Mini-Game Barı -->
+        <div id="fishing-ui" class="hidden">
+            <div id="fishing-title">
+                <span>🎣 BALIK OLTAYA VURDU!</span>
+                <span class="rarity-tag" id="fishing-rarity-label"></span>
+            </div>
+            <div id="fishing-bar-container">
+                <div id="fishing-bar-red"></div>
+                <div id="fishing-bar-green"></div>
+                <div id="fishing-bar-cursor"></div>
+            </div>
+            <div id="fishing-sub">İbre <b>Yeşil Alandayken</b> <span class="key-pill">SPACE</span> tuşuna bas!</div>
+        </div>
+
+        <!-- Bildirimler (Toast) -->
+        <div id="toast-container"></div>
+
+        <!-- ENVANTER MODALI (I Tuşu) -->
+        <div id="inventory-modal" class="modal-backdrop hidden">
+            <div class="window-card inv-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon">🎒</span>
+                        <h2>Envanter ve Ekipman</h2>
+                    </div>
+                    <button class="close-btn" id="close-inv-btn" title="Kapat (I)">✕</button>
+                </div>
+
+                <div class="inv-body">
+                    <!-- Sol Panel: Karakter Önizleme & Ekipman -->
+                    <div class="equip-panel">
+                        <h3>Kuşanılan Ekipman</h3>
+                        <div class="char-preview-box">
+                            <canvas id="previewCanvas" width="160" height="160"></canvas>
+                        </div>
+
+                        <div class="equip-slots">
+                            <div class="equip-slot-row">
+                                <div class="item-slot equip-slot" id="slot-rod" data-slot="rod">
+                                    <div class="slot-placeholder">🎣</div>
+                                    <div class="slot-item-icon"></div>
+                                </div>
+                                <div class="slot-info">
+                                    <div class="slot-label">Olta Slotu</div>
+                                    <div class="slot-equipped-name" id="name-rod">Boş</div>
+                                </div>
+                            </div>
+
+                            <div class="equip-slot-row">
+                                <div class="item-slot equip-slot" id="slot-bait" data-slot="bait">
+                                    <div class="slot-placeholder">🪱</div>
+                                    <div class="slot-item-icon"></div>
+                                </div>
+                                <div class="slot-info">
+                                    <div class="slot-label">Yem Slotu</div>
+                                    <div class="slot-equipped-name" id="name-bait">Boş</div>
+                                </div>
+                            </div>
+
+                            <div class="equip-slot-row">
+                                <div class="item-slot equip-slot" id="slot-costume" data-slot="costume">
+                                    <div class="slot-placeholder">👕</div>
+                                    <div class="slot-item-icon"></div>
+                                </div>
+                                <div class="slot-info">
+                                    <div class="slot-label">Kostüm Slotu</div>
+                                    <div class="slot-equipped-name" id="name-costume">Boş</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="player-stats-summary" class="stats-summary"></div>
+                    </div>
+
+                    <!-- Sağ Panel: Çanta (24 Slot) -->
+                    <div class="bag-panel">
+                        <div class="bag-header-row">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <h3>Çanta (24 Slot)</h3>
+                                <button id="inv-trash-toggle-btn" class="inv-trash-btn" title="Çöp Modu: Eşya seçip envanterden silmek için tıkla">
+                                    🗑️ Çöp Kutusu
+                                </button>
+                            </div>
+                            <span class="bag-subhint" id="bag-subhint-text">Kuşanmak veya yemek için eşyaya tıkla</span>
+                        </div>
+                        <div id="bag-grid" class="slot-grid"></div>
+                        <div id="trash-action-bar" class="trash-action-bar hidden">
+                            <div class="trash-action-info">
+                                <span>🗑️</span>
+                                <span id="trash-count-text">0 eşya seçildi</span>
+                            </div>
+                            <div class="trash-action-btns">
+                                <button class="action-btn danger-btn" id="trash-delete-btn" style="padding: 4px 12px; font-size: 12px;">
+                                    🗑️ Seçilenleri Sil
+                                </button>
+                                <button class="secondary-btn" id="trash-cancel-btn" style="padding: 4px 10px; font-size: 12px;">
+                                    İptal
+                                </button>
+                            </div>
+                        </div>
+                        <div id="item-tooltip" class="item-tooltip">
+                            <div class="tt-header">
+                                <span class="tt-title" id="tt-title">Eşya Seçin</span>
+                                <span class="tt-type" id="tt-type"></span>
+                            </div>
+                            <div class="tt-desc" id="tt-desc">Detaylarını görmek için çantadaki bir eşyanın üzerine gelin.</div>
+                            <div class="tt-enchants" id="tt-enchants"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- YETENEK AĞACI MODALI (K Tuşu) -->
+        <div id="skill-modal" class="modal-backdrop hidden">
+            <div class="window-card skill-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon">📘</span>
+                        <div>
+                            <h2>Pasif Yetenek Ağacı</h2>
+                            <div class="header-subtitle">Seviye atladıkça kazandığın puanlarla balıkçılık ustalıklarını geliştir</div>
+                        </div>
+                    </div>
+                    <button class="close-btn" id="close-skill-btn" title="Kapat (K)">✕</button>
+                </div>
+
+                <div class="skill-top-bar">
+                    <div class="skill-points-info">
+                        <span>Karakter Seviyesi: <b id="sk-char-lv">Lv. 1 / 10</b></span>
+                        <span class="divider">•</span>
+                        <span>Kullanılabilir Yetenek Puanı: <b id="sk-avail-points" class="highlight-pt">0</b></span>
+                    </div>
+                    <button class="action-btn danger-btn" id="reset-skills-btn">🔄 Yetenekleri Sıfırla (1 İnci)</button>
+                </div>
+
+                <div id="skill-tree-list" class="skill-tree-list"></div>
+            </div>
+        </div>
+
+        <!-- NPC & İSTASYON MODALI -->
+        <div id="npc-modal" class="modal-backdrop hidden">
+            <div class="window-card npc-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon" id="npc-modal-icon">🏛️</span>
+                        <div>
+                            <h2 id="npc-modal-title">NPC Adı</h2>
+                            <div id="npc-modal-subtitle" class="header-subtitle">Açıklama</div>
+                        </div>
+                    </div>
+                    <button class="close-btn" id="close-npc-btn" title="Kapat (ESC)">✕</button>
+                </div>
+                <div id="npc-modal-content" class="npc-body"></div>
+            </div>
+        </div>
+
+        <!-- LONCA MODALI (G Tuşu) -->
+        <div id="guild-modal" class="modal-backdrop hidden">
+            <div class="window-card guild-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon" id="guild-modal-icon">🏛️</span>
+                        <div>
+                            <h2 id="guild-modal-title">Lonca Karargâhı</h2>
+                            <div id="guild-modal-subtitle" class="header-subtitle">Lonca Yönetimi ve Üyeler</div>
+                        </div>
+                    </div>
+                    <button class="close-btn" id="close-guild-btn" title="Kapat (G / ESC)">✕</button>
+                </div>
+                <div id="guild-modal-content" class="guild-body"></div>
+            </div>
+        </div>
+
+        <!-- OYUN KONTROL PANELİ / GM EDİTÖRÜ (P Tuşu) -->
+        <div id="admin-modal" class="modal-backdrop hidden">
+            <div class="window-card admin-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon">⚙️</span>
+                        <div>
+                            <h2>Oyun Kontrol Paneli (Canlı Düzenleyici)</h2>
+                            <div class="header-subtitle">Nadirlik oranlarını, balık EXP'lerini, NPC fiyatlarını, oyun kurallarını ve eşya görsellerini anında düzenle</div>
+                        </div>
+                    </div>
+                    <div class="admin-header-actions">
+                        <button class="action-btn" id="admin-export-btn" title="Ayarları JSON olarak indir">💾 Dışa Aktar</button>
+                        <label class="action-btn" title="JSON ayar dosyası yükle" style="cursor:pointer;">
+                            📂 İçe Aktar
+                            <input type="file" id="admin-import-input" accept=".json" style="display:none;">
+                        </label>
+                        <button class="action-btn danger-btn" id="admin-reset-btn" title="Tüm ayarları fabrika ayarlarına döndür">🔄 Varsayılana Sıfırla</button>
+                        <button class="close-btn" id="close-admin-btn" title="Kapat (P)">✕</button>
+                    </div>
+                </div>
+
+                <div class="admin-tabs">
+                    <button class="tab-btn active" data-admintab="rarities">🎲 Nadirlik & EXP Oranları</button>
+                    <button class="tab-btn" data-admintab="items">🎨 Eşyalar, Fiyatlar & Görseller</button>
+                    <button class="tab-btn" data-admintab="boats">⛵ Tekneler & Akdeniz Ayarları</button>
+                    <button class="tab-btn" data-admintab="rules">⚡ Efsun, Yetenek & Kurallar</button>
+                    <button class="tab-btn" data-admintab="quests">📜 Görevler & Bahisçi Bülo</button>
+                    <button class="tab-btn" data-admintab="kraken_drops" style="border-color:#ef4444; color:#fca5a5;">🦑 Kraken Zamanı & Dropları</button>
+                    <button class="tab-btn" data-admintab="gm">👑 GM Hızlı Araçlar (Test)</button>
+                </div>
+
+                <div id="admin-tab-content" class="admin-body"></div>
+            </div>
+        </div>
+
+        <!-- WIKI & OYUN REHBERİ MODALI (Z Tuşu) -->
+        <div id="wiki-modal" class="modal-backdrop hidden">
+            <div class="window-card wiki-window">
+                <div class="window-header">
+                    <div class="header-title">
+                        <span class="header-icon">📖</span>
+                        <div>
+                            <h2>Oyun Ansiklopedisi & Kapsamlı Başlangıç Rehberi</h2>
+                            <div class="header-subtitle">Hiçbir şey bilmeyen oyuncular ve tecrübeli balıkçılar için tüm sistemlerin detaylı kılavuzu</div>
+                        </div>
+                    </div>
+                    <div class="admin-header-actions">
+                        <button class="close-btn" id="close-wiki-btn" title="Kapat (Z / ESC)">✕</button>
+                    </div>
+                </div>
+
+                <div class="wiki-layout">
+                    <div class="wiki-sidebar" id="wiki-sidebar">
+                        <button class="wiki-nav-btn active" data-wikitab="basics">🚀 Başlangıç & Kontroller</button>
+                        <button class="wiki-nav-btn" data-wikitab="maps">🗺️ Haritalar & Dünyalar</button>
+                        <button class="wiki-nav-btn" data-wikitab="npcs">🏛️ Şehir & Tüm NPC'ler</button>
+                        <button class="wiki-nav-btn" data-wikitab="fishing">🎣 Balıkçılık & Minigame</button>
+                        <button class="wiki-nav-btn" data-wikitab="anvil">🔨 Efsunlu Örs & Kostümler</button>
+                        <button class="wiki-nav-btn" data-wikitab="guilds">⚔️ Lonca, Kasalar & Ağaç</button>
+                        <button class="wiki-nav-btn" data-wikitab="skills">📘 Karakter Yetenekleri (K)</button>
+                        <button class="wiki-nav-btn" data-wikitab="autohunt">🤖 Auto-Hunt & Otopilot</button>
+                        <button class="wiki-nav-btn" data-wikitab="specials">💎 Nadir Eşyalar & Droplar</button>
+                    </div>
+                    <div class="wiki-content" id="wiki-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ÜYE OL / GİRİŞ YAP AĞ GEÇİDİ (LOGIN & REGISTER GATEWAY) -->
+        <div id="auth-gateway-modal" class="modal-backdrop">
+            <div class="window-card auth-window">
+                <div class="auth-header">
+                    <div class="auth-badge">⚔️ 2.5D ÇEVRİMİÇİ MMO</div>
+                    <h2 class="auth-title">Burnaz Sahil & Dörtyol</h2>
+                    <div class="auth-subtitle">Efsanevi balıkçılık ve lonca dünyasına katılmak için giriş yap veya yeni hesap oluştur.</div>
+                    
+                    <div class="auth-server-indicator">
+                        <span class="auth-status-dot" id="auth-status-dot"></span>
+                        <span id="auth-status-text">Sunucu Durumu: Bağlantı Kuruluyor...</span>
+                    </div>
+                </div>
+
+                <!-- Giriş / Kayıt Sekmeleri -->
+                <div class="auth-tabs">
+                    <button class="auth-tab active" id="auth-tab-btn-login">🔑 Giriş Yap</button>
+                    <button class="auth-tab" id="auth-tab-btn-register">📝 Kayıt Ol</button>
+                </div>
+
+                <!-- GİRİŞ FORMU -->
+                <div id="auth-login-form" class="auth-form-wrap">
+                    <div class="auth-field">
+                        <label for="auth-login-ident">Kullanıcı Adı veya E-posta</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">👤</span>
+                            <input type="text" id="auth-login-ident" placeholder="Kullanıcı adı veya e-posta..." autocomplete="username">
+                        </div>
+                    </div>
+
+                    <div class="auth-field">
+                        <label for="auth-login-pass">Şifre</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">🔒</span>
+                            <input type="password" id="auth-login-pass" placeholder="Şifrenizi girin..." autocomplete="current-password">
+                        </div>
+                    </div>
+
+                    <div class="auth-options">
+                        <label class="auth-remember-label">
+                            <input type="checkbox" id="auth-login-remember" checked>
+                            <span>Beni Hatırla (Oturumu Koru)</span>
+                        </label>
+                    </div>
+
+                    <div id="auth-login-error" class="auth-error-msg hidden"></div>
+
+                    <button id="auth-btn-login" class="action-btn primary auth-submit-btn">
+                        <span>🚀 Giriş Yap ve Dünyaya Bağlan</span>
+                    </button>
+                </div>
+
+                <!-- KAYIT FORMU -->
+                <div id="auth-register-form" class="auth-form-wrap hidden">
+                    <div class="auth-field">
+                        <label for="auth-reg-user">Kullanıcı Adı (3 - 16 Karakter)</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">👤</span>
+                            <input type="text" id="auth-reg-user" placeholder="Kullanıcı adınızı belirleyin..." maxlength="16" autocomplete="username">
+                        </div>
+                    </div>
+
+                    <div class="auth-field">
+                        <label for="auth-reg-email">E-posta Adresi</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">📧</span>
+                            <input type="email" id="auth-reg-email" placeholder="ornek@mail.com" autocomplete="email">
+                        </div>
+                    </div>
+
+                    <div class="auth-field">
+                        <label for="auth-reg-pass">Şifre (En az 4 karakter)</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">🔒</span>
+                            <input type="password" id="auth-reg-pass" placeholder="Güçlü bir şifre girin..." autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <div class="auth-field">
+                        <label for="auth-reg-pass2">Şifre Tekrar</label>
+                        <div class="auth-input-wrap">
+                            <span class="auth-icon">🛡️</span>
+                            <input type="password" id="auth-reg-pass2" placeholder="Şifrenizi tekrar girin..." autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <div id="auth-reg-error" class="auth-error-msg hidden"></div>
+
+                    <button id="auth-btn-register" class="action-btn success auth-submit-btn">
+                        <span>✨ Hesap Oluştur ve Giriş Yap</span>
+                    </button>
+                </div>
+
+                <div class="auth-footer-note">
+                    🔒 Hesabınız ve karakter verileriniz bulutta güvenle saklanır.
+                </div>
+            </div>
+        </div>
+
+        <!-- KARAKTER OLUŞTURMA & GİRİŞ MODALI (İLK EKRAN) -->
+        <div id="char-create-modal" class="modal-backdrop hidden">
+            <div class="window-card char-create-window">
+                <div class="char-create-badge">⚔️ 2.5D ÇEVRİMİÇİ MMO</div>
+                <h2 class="char-create-title">Karakterini Yarat</h2>
+                <div class="char-create-desc">Burnaz Sahil ve Dörtyol sularına adım atmak için karakter adını belirle.</div>
+
+                <div class="char-create-body">
+                    <div class="char-avatar-card">
+                        <canvas id="char-preview-canvas" width="130" height="140"></canvas>
+                        <div class="char-avatar-tag" id="char-preview-tag">Lv.1 Balıkçı</div>
+                    </div>
+
+                    <div class="char-form-box">
+                        <label class="char-input-label" for="char-name-input">Karakter Adı</label>
+                        <div class="char-input-wrap">
+                            <span class="char-input-icon">👤</span>
+                            <input type="text" id="char-name-input" maxlength="16" placeholder="Karakter adını gir..." autocomplete="off">
+                        </div>
+                        <div id="char-name-error" class="char-error-text hidden">Lütfen 2 ile 16 karakter arasında bir isim girin!</div>
+                        <div class="char-input-tip">💡 Karakter adın haritada kafanın üzerinde ve sohbette görünecektir.</div>
+                    </div>
+                </div>
+
+                <div class="char-create-footer">
+                    <button id="char-create-btn" class="action-btn primary char-submit-btn">
+                        <span>⛵ Dünyaya Adım At (Oyuna Başla)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Socket.io İstemci Kütüphanesi (Sunucu varsa bağlanır, yoksa yerel modda devam eder) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
